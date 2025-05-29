@@ -1,11 +1,15 @@
 {
   "1-1": [
     {
-      "subject": "GENERAL CHEMISTRY",
+      "subject": "PROBABILITY & STATISTICS",
       "courseGrade": "10"
     },
     {
-      "subject": "ELECTRONIC DEVICES",
+      "subject": "CHEMISTRY LABORATORY",
+      "courseGrade": "10"
+    },
+    {
+      "subject": "MICROELECTRONIC CIRCUITS",
       "courseGrade": "10"
     }
   ],
