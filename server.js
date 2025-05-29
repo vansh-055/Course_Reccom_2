@@ -6,6 +6,10 @@ const { exec } = require('child_process');
 const bodyParser = require('body-parser');
 const fs = require('fs');
 
+app.get('/', (req, res) => {
+    res.send('🚀 Backend is live!');
+});
+
 // Step 2: Use the cors middleware
 app.use(cors());
 
@@ -73,6 +77,6 @@ app.get('/get-csv-data/:csvId', (req, res) => {
 
 const PORT = process.env.PORT || 2000;
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is running on http://0.0.0.0:${PORT}`);
+app.listen(PORT, () => {
+    console.log(`✅ Server is running on port ${PORT}`);
 });
