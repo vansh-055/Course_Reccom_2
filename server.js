@@ -75,7 +75,7 @@ app.get('/get-csv-data/:csvId', (req, res) => {
     });
 });
 
-const PORT = process.env.PORT || 2000;
+const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
     console.log(`✅ Server is running on port ${PORT}`);
