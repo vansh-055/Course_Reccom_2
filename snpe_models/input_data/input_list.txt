@@ -1,0 +1,1 @@
+user_id:=C:\dev\recommendation-backend\snpe_models\input_data\user_id.raw course_id:=C:\dev\recommendation-backend\snpe_models\input_data\course_id.raw

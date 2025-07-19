@@ -1,0 +1,43 @@
+{
+  "model_info": {
+    "num_users": 1,
+    "num_courses": 442,
+    "embedding_dim": 10,
+    "input_names": [
+      "user_id",
+      "course_id"
+    ],
+    "output_names": [
+      "prediction"
+    ]
+  },
+  "snpe_info": {
+    "input_dimensions": {
+      "user_id": [
+        1
+      ],
+      "course_id": [
+        1
+      ]
+    },
+    "output_dimensions": {
+      "prediction": [
+        1,
+        1
+      ]
+    }
+  },
+  "deployment_notes": {
+    "model_format": "SNPE DLC",
+    "quantization": "INT8",
+    "target_devices": [
+      "Snapdragon Mobile",
+      "Snapdragon Embedded"
+    ],
+    "runtime_options": [
+      "CPU",
+      "GPU",
+      "DSP"
+    ]
+  }
+}

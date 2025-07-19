@@ -1,0 +1,2 @@
+user_id:=C:\dev\recommendation-backend\snpe_conversion_output\quantization_data\user_id_0.raw
+course_id:=C:\dev\recommendation-backend\snpe_conversion_output\quantization_data\course_id_0.raw
