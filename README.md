@@ -1,22 +1,58 @@
-# PyTorch to SNPE DLC Conversion Guide
+# PyTorch to Quantized DLC Conversion Workflow
 
-This document provides a complete, step-by-step guide for training a course recommendation model with PyTorch and converting it into a quantized SNPE DLC file. This workflow has been redesigned to be more robust and handle common environment issues on Windows.
+This document provides a complete, step-by-step guide for training a course recommendation model with PyTorch and converting it into a quantized SNPE DLC file using the modern QAIRT toolchain. The workflow is automated into two main Python scripts.
 
-## Workflow Overview
+## Prerequisites
 
-The process is divided into three clear stages:
+- **Python**: A working Python environment (e.g., Python 3.10+)
+- **Qualcomm Neural Processing SDK (SNPE/QAIRT)**: The SDK must be installed on your system. This guide assumes the path is `C:\QualcommSNPE\qairt\2.36.0.250627`
+- **PyTorch and other ML libraries**: Required for model training
 
-1. **Model Training**: Train the PyTorch model to create the models directory
-2. **Generate Conversion Scripts**: Run a Python script that prepares all necessary files, including a dedicated PowerShell script to perform the conversion  
-3. **Execute Conversion**: Run the single, auto-generated PowerShell script to get your final .dlc file
+## Setup Instructions
 
----
+Follow these steps to set up the environment before running the scripts.
 
-## Step 1: Train the PyTorch Model
+### 1. Set up the SDK Virtual Environment
 
-This script trains the recommendation model using `data.json`. Its output is the models directory containing `quantized_model_full.pth` and the encoder files.
+First, create a dedicated Python virtual environment for the Qualcomm SDK tools. This ensures that the tools run with the correct dependencies.
 
-**Save this code as `train_model.py`:**
+Open a PowerShell or Command Prompt terminal and run:
+
+```powershell
+# Navigate to the SDK's bin directory
+cd C:\QualcommSNPE\qairt\2.36.0.250627\bin
+
+# Create the virtual environment
+python -m venv .\venv
+```
+
+### 2. Install Required Packages
+
+Next, install all necessary Python packages into both your main Python environment (for training) and the SDK's virtual environment (for conversion).
+
+**A. Install packages for your main environment (for training):**
+
+```bash
+pip install torch pandas scikit-learn
+```
+
+**B. Install packages for the SDK's venv (for conversion):**
+
+Run this single command to install all packages required by the `qairt-converter` and `qairt-quantizer` tools.
+
+```bash
+C:\QualcommSNPE\qairt\2.36.0.250627\bin\venv\Scripts\pip.exe install numpy pandas scikit-learn onnx PyYAML packaging
+```
+
+## Workflow Execution
+
+After setup, the entire process is just two steps. Run these commands from your project's root directory (e.g., `C:\dev\recommendation-backend`).
+
+### Step 1: Train the PyTorch Model
+
+This script trains the recommendation model using `data.json` and saves the trained model, along with encoder files, into a `models2` directory.
+
+Save this code as `train_model.py`:
 
 ```python
 import pandas as pd
@@ -109,7 +145,7 @@ class CourseRecommendationSystem:
         self.quantized_model = quantize_dynamic(self.model, {nn.Linear}, dtype=torch.qint8)
         print("Dynamic quantization applied.")
 
-    def save_for_production(self, save_dir='models'):
+    def save_for_production(self, save_dir='models2'):
         os.makedirs(save_dir, exist_ok=True)
         torch.save(self.quantized_model, os.path.join(save_dir, 'quantized_model_full.pth'))
         with open(os.path.join(save_dir, 'student_encoder.pkl'), 'wb') as f:
@@ -130,13 +166,40 @@ if __name__ == "__main__":
     main()
 ```
 
----
+Save this sample data as `data.json`:
 
-## Step 2: Generate Conversion Scripts and Files
+```json
+{
+    "student1-2023": [
+        {"course_id": "CS101", "course_grade": 85},
+        {"course_id": "MA202", "course_grade": 92}
+    ],
+    "student2-2023": [
+        {"course_id": "CS101", "course_grade": 95},
+        {"course_id": "PY301", "course_grade": 88}
+    ],
+    "student3-2024": [
+        {"course_id": "MA202", "course_grade": 78},
+        {"course_id": "PY301", "course_grade": 81}
+    ],
+    "student4-2024": [
+        {"course_id": "CS101", "course_grade": 90},
+        {"course_id": "EE401", "course_grade": 85}
+    ]
+}
+```
 
-This script is the core of the new workflow. It generates the `.onnx` model, the correctly formatted `input_list.txt`, and, most importantly, a `run_conversion.ps1` PowerShell script that you will execute in the next step.
+Run the training script:
 
-**Save this code as `create_conversion_files.py`:**
+```bash
+python train_model.py
+```
+
+### Step 2: Convert to Quantized DLC
+
+This script automates the entire conversion process. It loads the trained PyTorch model, exports it to ONNX, converts it to a float DLC, and finally quantizes it to an 8-bit fixed-point DLC.
+
+Save this code as `convert_with_qairt.py`:
 
 ```python
 import numpy as np
@@ -145,6 +208,8 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import pickle
+import subprocess
+import sys
 
 # --- Model Definitions (Required for loading the model) ---
 class FactorizationMachine(nn.Module):
@@ -175,174 +240,149 @@ class ConversionReadyFactorizationMachine(nn.Module):
         output = self.linear(combined)
         return output
 
-def generate_files():
-    print("Generating SNPE conversion files and execution script...")
+def run_command(setup_script, python_exe, tool_script, args):
+    """
+    Helper function to run an SDK tool by first sourcing the envsetup.ps1 script
+    in a PowerShell session.
+    """
+    full_command_str = f". '{setup_script}'; & '{python_exe}' '{tool_script}' {' '.join(args)}"
+    
+    print(f"🚀 Executing PowerShell command...")
+    print(f"   {full_command_str}")
+    
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-Command", full_command_str],
+            check=True, text=True, capture_output=True
+        )
+        print("✔️ Command successful.")
+        if result.stdout:
+            print(f"--- STDOUT ---\n{result.stdout}")
+
+    except subprocess.CalledProcessError as e:
+        print(f"❌ ERROR: Command failed with exit code {e.returncode}")
+        print(f"--- STDOUT ---\n{e.stdout}")
+        print(f"--- STDERR ---\n{e.stderr}")
+        sys.exit(1)
+
+def main():
+    print("🚀 Starting modern QAIRT conversion and quantization process...")
 
     # --- Configuration ---
-    model_dir = Path("models").resolve()
-    output_dir = Path("snpe_conversion_output").resolve()
+    model_dir = Path("models2").resolve()
+    output_dir = Path("qairt_output").resolve()
     data_dir = output_dir / "quantization_data"
-    input_list_path = output_dir / "input_list.txt"
-    user_raw_path = data_dir / "user_id_0.raw"
-    course_raw_path = data_dir / "course_id_0.raw"
-    onnx_path = output_dir / 'model.onnx'
     
-    # SNPE SDK Configuration
-    snpe_sdk_root = Path(r"C:\Users\vikas\OneDrive\Desktop\Bits teaching material\PS1-Swecha\Aneesh Sir\Qualcomm\v2.36.0.250627\qairt\2.36.0.250627")
-    snpe_python_exe = snpe_sdk_root / "bin" / "venv" / "Scripts" / "python.exe"
-    snpe_dlc_converter_script = snpe_sdk_root / "bin" / "x86_64-windows-msvc" / "snpe-onnx-to-dlc"
-    snpe_quantizer_exe = snpe_sdk_root / "bin" / "x86_64-windows-msvc" / "snpe-dlc-quant"
-    snpe_setup_script = snpe_sdk_root / "bin" / "envsetup.ps1"
+    # --- SNPE/QAIRT SDK Configuration ---
+    sdk_root = Path(r"C:\QualcommSNPE\qairt\2.36.0.250627")
+    
+    sdk_python_exe = sdk_root / "bin" / "venv" / "Scripts" / "python.exe"
+    env_setup_script = sdk_root / "bin" / "envsetup.ps1"
+    
+    qairt_converter_script = sdk_root / "bin" / "x86_64-windows-msvc" / "qairt-converter"
+    qairt_quantizer_script = sdk_root / "bin" / "x86_64-windows-msvc" / "qairt-quantizer"
 
     # --- Create Directories ---
     output_dir.mkdir(exist_ok=True)
     data_dir.mkdir(exist_ok=True)
+    print(f"✔️ Output directory '{output_dir}' is ready.")
 
-    # --- Load Model and Export to ONNX ---
-    with open(model_dir / 'student_encoder.pkl', 'rb') as f: 
-        student_encoder = pickle.load(f)
-    with open(model_dir / 'course_encoder.pkl', 'rb') as f: 
-        course_encoder = pickle.load(f)
+    # --- Step 1: Export PyTorch model to ONNX ---
+    print("\n--- [1/4] Loading model and exporting to ONNX ---")
+    onnx_path = output_dir / 'model.onnx'
     
+    with open(model_dir / 'student_encoder.pkl', 'rb') as f: student_encoder = pickle.load(f)
+    with open(model_dir / 'course_encoder.pkl', 'rb') as f: course_encoder = pickle.load(f)
+    quantized_model_torch = torch.load(model_dir / 'quantized_model_full.pth', map_location='cpu', weights_only=False)
+
     num_users, num_courses = len(student_encoder.classes_), len(course_encoder.classes_)
+    embedding_dim = quantized_model_torch.user_embedding.weight.shape[1]
     
-    quantized_model = torch.load(model_dir / 'quantized_model_full.pth', map_location='cpu', weights_only=False)
-    quantized_model.eval()
-    
-    embedding_dim = quantized_model.user_embedding.weight.shape[1]
     clean_model = ConversionReadyFactorizationMachine(num_users, num_courses, embedding_dim)
-    
-    with torch.no_grad():
-        clean_model.load_state_dict(quantized_model.state_dict(), strict=False)
+    clean_model.load_state_dict(quantized_model_torch.state_dict(), strict=False)
     clean_model.eval()
-    
+
     torch.onnx.export(
         clean_model, (torch.tensor([0]), torch.tensor([0])), str(onnx_path),
         input_names=['user_id', 'course_id'], output_names=['prediction'],
-        opset_version=11, 
-        dynamic_axes={
-            'user_id': {0: 'batch_size'}, 
-            'course_id': {0: 'batch_size'}, 
-            'prediction': {0: 'batch_size'}
-        }
+        opset_version=11, dynamic_axes={'user_id': {0: 'batch_size'}, 'course_id': {0: 'batch_size'}}
     )
-    print(f"Successfully created: {onnx_path}")
-
-    # --- Create Quantization Files with Forced Linux-style Line Endings ---
+    print(f"✔️ Successfully created ONNX model: {onnx_path}")
+    
+    # --- Step 2: Convert ONNX to Float DLC ---
+    print("\n--- [2/4] Converting ONNX to Float DLC ---")
+    float_dlc_path = output_dir / "model_float.dlc"
+    converter_args = [
+        "--input_network", f"'{onnx_path}'",
+        "--output_path", f"'{float_dlc_path}'",
+        "--input_dim", "user_id", "'1,1'",
+        "--input_dim", "course_id", "'1,1'"
+    ]
+    run_command(env_setup_script, sdk_python_exe, qairt_converter_script, converter_args)
+    
+    # --- Step 3: Create representative data files for quantization ---
+    print("\n--- [3/4] Creating quantization input files ---")
+    input_list_path = output_dir / "input_list.txt"
+    user_raw_path = data_dir / "user_id_0.raw"
+    course_raw_path = data_dir / "course_id_0.raw"
+    
     dummy_input = np.array([0], dtype=np.float32)
     dummy_input.tofile(user_raw_path)
     dummy_input.tofile(course_raw_path)
-    content = f"user_id:={user_raw_path.resolve()}\ncourse_id:={course_raw_path.resolve()}"
+
+    content = f"user_id:='{user_raw_path.resolve()}'\ncourse_id:='{course_raw_path.resolve()}'"
     with open(input_list_path, 'wb') as f:
         f.write(content.encode('ascii'))
-    print(f"Successfully created: {input_list_path}")
+    print(f"✔️ Successfully created input_list.txt for quantization.")
 
-    # --- Generate the PowerShell Execution Script ---
-    ps_script_path = Path("run_conversion.ps1").resolve()
-    float_dlc_path = output_dir / "model_float.dlc"
+    # --- Step 4: Quantize the DLC ---
+    print("\n--- [4/4] Quantizing DLC to INT8 ---")
     quantized_dlc_path = output_dir / "model_quantized.dlc"
-
-    ps_script_content = f'''
-Write-Host "--- Starting SNPE Conversion ---" -ForegroundColor Green
-
-# Step 1: Set up the SNPE environment
-Write-Host "Setting up SNPE environment..."
-& "{snpe_setup_script}"
-
-# Step 2: Run ONNX to DLC conversion
-Write-Host "`nConverting ONNX to float DLC..."
-& "{snpe_python_exe}" "{snpe_dlc_converter_script}" -d user_id 1 -d course_id 1 -i "{onnx_path}" -o "{float_dlc_path}"
-if ($LASTEXITCODE -ne 0) {{ Write-Host "ERROR: ONNX to DLC conversion failed." -ForegroundColor Red; exit 1 }}
-
-# Step 3: Run DLC Quantization
-Write-Host "`nQuantizing DLC..."
-& "{snpe_quantizer_exe}" --input_dlc "{float_dlc_path}" --input_list "{input_list_path}" --output_dlc "{quantized_dlc_path}"
-if ($LASTEXITCODE -ne 0) {{ Write-Host "ERROR: DLC quantization failed." -ForegroundColor Red; exit 1 }}
-
-Write-Host "`n--- CONVERSION COMPLETE ---" -ForegroundColor Green
-Write-Host "Final model is ready at: {quantized_dlc_path}"
-'''
-    with open(ps_script_path, 'w') as f:
-        f.write(ps_script_content)
+    quantizer_args = [
+        "--input_dlc", f"'{float_dlc_path}'",
+        "--input_list", f"'{input_list_path}'",
+        "--output_dlc", f"'{quantized_dlc_path}'"
+    ]
+    run_command(env_setup_script, sdk_python_exe, qairt_quantizer_script, quantizer_args)
     
-    print(f"\nSuccessfully created PowerShell execution script: {ps_script_path}")
-    print("You can now proceed to Step 3.")
+    print("\n🎉 --- Process Complete! --- 🎉")
+    print(f"Final quantized model is ready at: {quantized_dlc_path}")
+
 
 if __name__ == "__main__":
-    from sklearn.exceptions import InconsistentVersionWarning
-    import warnings
-    warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
-    generate_files()
+    try:
+        from sklearn.exceptions import InconsistentVersionWarning
+        import warnings
+        warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+    except ImportError:
+        pass
+    main()
 ```
 
----
+Run the conversion script:
 
-## Step 3: Execute the Conversion
-
-This is the final, simplified step. You will run the PowerShell script that was automatically generated by the Python script in Step 2.
-
-### In a PowerShell terminal, run these commands:
-
-1. **Navigate to your project directory:**
-   ```powershell
-   cd C:\dev\recommendation-backend
-   ```
-
-2. **(Optional) Set Execution Policy:** If you haven't run PowerShell scripts before, you may need to run this command once per session to allow it:
-   ```powershell
-   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-   ```
-
-3. **Run the auto-generated conversion script:**
-   ```powershell
-   .\run_conversion.ps1
-   ```
-
-The script will now handle the environment setup and execute the conversion and quantization steps in sequence. After it finishes, your `model_quantized.dlc` file will be ready in the `snpe_conversion_output` folder.
-
----
-
-## Requirements
-
-### Python Dependencies
-- pandas
-- torch
-- scikit-learn
-- numpy
-- pathlib
-
-### System Requirements
-- Windows OS
-- SNPE SDK installed and configured
-- PowerShell execution policy allowing script execution
-
-### File Structure
-```
-project/
-├── data.json
-├── train_model.py
-├── create_conversion_files.py
-├── run_conversion.ps1 (auto-generated)
-├── models/
-│   ├── quantized_model_full.pth
-│   ├── student_encoder.pkl
-│   └── course_encoder.pkl
-└── snpe_conversion_output/
-    ├── model.onnx
-    ├── input_list.txt
-    ├── model_float.dlc
-    ├── model_quantized.dlc
-    └── quantization_data/
-        ├── user_id_0.raw
-        └── course_id_0.raw
+```bash
+python convert_with_qairt.py
 ```
 
----
+## Output
 
-## Usage
+After the process completes successfully, your final quantized model will be located at:
 
-1. Run the training script: `python train_model.py`
-2. Generate conversion files: `python create_conversion_files.py`
-3. Execute the conversion: `.\run_conversion.ps1`
+```
+qairt_output/model_quantized.dlc
+```
 
-Your final quantized SNPE model will be available as `model_quantized.dlc` in the `snpe_conversion_output` directory.
+This `.dlc` file is ready to be deployed using the Qualcomm Neural Processing SDK runtime.
+
+## Summary
+
+This workflow provides a complete automation for converting PyTorch models to optimized DLC format:
+
+1. **Training**: Creates a factorization machine model for course recommendations
+2. **Quantization**: Applies dynamic quantization to reduce model size
+3. **ONNX Export**: Converts the model to ONNX format for cross-platform compatibility
+4. **DLC Conversion**: Uses QAIRT tools to create float and quantized DLC files
+5. **Deployment Ready**: Final quantized model optimized for Qualcomm hardware
+
+The entire process is streamlined into just two Python scripts that handle all the complex conversion steps automatically.
