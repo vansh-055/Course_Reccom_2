@@ -1,12 +1,24 @@
-This document provides a complete, step-by-step guide for training a course recommendation model with PyTorch and converting it into a quantized SNPE DLC file. This workflow has been redesigned to be more robust and to handle common environment issues on Windows.
-Workflow Overview
-The process is now divided into three clear stages:
-Model Training: Train the PyTorch model to create the models directory.
-Generate Conversion Scripts: Run a Python script that prepares all necessary files, including a dedicated Powershell script to perform the conversion.
-Execute Conversion: Run the single, auto-generated Powershell script to get your final .dlc file.
-Step 1: Train the PyTorch Model
-This script trains the recommendation model using data.json. Its output is the models directory containing quantized_model_full.pth and the encoder files.
-Save this code as train_model.py:
+# PyTorch to SNPE DLC Conversion Guide
+
+This document provides a complete, step-by-step guide for training a course recommendation model with PyTorch and converting it into a quantized SNPE DLC file. This workflow has been redesigned to be more robust and handle common environment issues on Windows.
+
+## Workflow Overview
+
+The process is divided into three clear stages:
+
+1. **Model Training**: Train the PyTorch model to create the models directory
+2. **Generate Conversion Scripts**: Run a Python script that prepares all necessary files, including a dedicated PowerShell script to perform the conversion  
+3. **Execute Conversion**: Run the single, auto-generated PowerShell script to get your final .dlc file
+
+---
+
+## Step 1: Train the PyTorch Model
+
+This script trains the recommendation model using `data.json`. Its output is the models directory containing `quantized_model_full.pth` and the encoder files.
+
+**Save this code as `train_model.py`:**
+
+```python
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -116,11 +128,17 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
 
+---
 
-Step 2: Generate Conversion Scripts and Files
-This script is the core of the new workflow. It generates the .onnx model, the correctly formatted input_list.txt, and, most importantly, a run_conversion.ps1 Powershell script that you will execute in the next step.
-Save this code as create_conversion_files.py:
+## Step 2: Generate Conversion Scripts and Files
+
+This script is the core of the new workflow. It generates the `.onnx` model, the correctly formatted `input_list.txt`, and, most importantly, a `run_conversion.ps1` PowerShell script that you will execute in the next step.
+
+**Save this code as `create_conversion_files.py`:**
+
+```python
 import numpy as np
 import os
 from pathlib import Path
@@ -181,8 +199,10 @@ def generate_files():
     data_dir.mkdir(exist_ok=True)
 
     # --- Load Model and Export to ONNX ---
-    with open(model_dir / 'student_encoder.pkl', 'rb') as f: student_encoder = pickle.load(f)
-    with open(model_dir / 'course_encoder.pkl', 'rb') as f: course_encoder = pickle.load(f)
+    with open(model_dir / 'student_encoder.pkl', 'rb') as f: 
+        student_encoder = pickle.load(f)
+    with open(model_dir / 'course_encoder.pkl', 'rb') as f: 
+        course_encoder = pickle.load(f)
     
     num_users, num_courses = len(student_encoder.classes_), len(course_encoder.classes_)
     
@@ -199,7 +219,12 @@ def generate_files():
     torch.onnx.export(
         clean_model, (torch.tensor([0]), torch.tensor([0])), str(onnx_path),
         input_names=['user_id', 'course_id'], output_names=['prediction'],
-        opset_version=11, dynamic_axes={'user_id': {0: 'batch_size'}, 'course_id': {0: 'batch_size'}, 'prediction': {0: 'batch_size'}}
+        opset_version=11, 
+        dynamic_axes={
+            'user_id': {0: 'batch_size'}, 
+            'course_id': {0: 'batch_size'}, 
+            'prediction': {0: 'batch_size'}
+        }
     )
     print(f"Successfully created: {onnx_path}")
 
@@ -212,12 +237,12 @@ def generate_files():
         f.write(content.encode('ascii'))
     print(f"Successfully created: {input_list_path}")
 
-    # --- Generate the Powershell Execution Script ---
+    # --- Generate the PowerShell Execution Script ---
     ps_script_path = Path("run_conversion.ps1").resolve()
     float_dlc_path = output_dir / "model_float.dlc"
     quantized_dlc_path = output_dir / "model_quantized.dlc"
 
-    ps_script_content = f"""
+    ps_script_content = f'''
 Write-Host "--- Starting SNPE Conversion ---" -ForegroundColor Green
 
 # Step 1: Set up the SNPE environment
@@ -236,11 +261,11 @@ if ($LASTEXITCODE -ne 0) {{ Write-Host "ERROR: DLC quantization failed." -Foregr
 
 Write-Host "`n--- CONVERSION COMPLETE ---" -ForegroundColor Green
 Write-Host "Final model is ready at: {quantized_dlc_path}"
-"""
+'''
     with open(ps_script_path, 'w') as f:
         f.write(ps_script_content)
     
-    print(f"\nSuccessfully created Powershell execution script: {ps_script_path}")
+    print(f"\nSuccessfully created PowerShell execution script: {ps_script_path}")
     print("You can now proceed to Step 3.")
 
 if __name__ == "__main__":
@@ -248,21 +273,76 @@ if __name__ == "__main__":
     import warnings
     warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
     generate_files()
+```
 
+---
 
-Step 3: Execute the Conversion
-This is the final, simplified step. You will run the Powershell script that was automatically generated by the Python script in Step 2.
-In a Powershell terminal, run these commands:
-Navigate to your project directory:
-cd C:\dev\recommendation-backend
+## Step 3: Execute the Conversion
 
+This is the final, simplified step. You will run the PowerShell script that was automatically generated by the Python script in Step 2.
 
-(Optional) Set Execution Policy: If you haven't run Powershell scripts before, you may need to run this command once per session to allow it:
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+### In a PowerShell terminal, run these commands:
 
+1. **Navigate to your project directory:**
+   ```powershell
+   cd C:\dev\recommendation-backend
+   ```
 
-Run the auto-generated conversion script:
-.\run_conversion.ps1
+2. **(Optional) Set Execution Policy:** If you haven't run PowerShell scripts before, you may need to run this command once per session to allow it:
+   ```powershell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   ```
 
+3. **Run the auto-generated conversion script:**
+   ```powershell
+   .\run_conversion.ps1
+   ```
 
-The script will now handle the environment setup and execute the conversion and quantization steps in sequence. After it finishes, your model_quantized.dlc file will be ready in the snpe_conversion_output folder.
+The script will now handle the environment setup and execute the conversion and quantization steps in sequence. After it finishes, your `model_quantized.dlc` file will be ready in the `snpe_conversion_output` folder.
+
+---
+
+## Requirements
+
+### Python Dependencies
+- pandas
+- torch
+- scikit-learn
+- numpy
+- pathlib
+
+### System Requirements
+- Windows OS
+- SNPE SDK installed and configured
+- PowerShell execution policy allowing script execution
+
+### File Structure
+```
+project/
+├── data.json
+├── train_model.py
+├── create_conversion_files.py
+├── run_conversion.ps1 (auto-generated)
+├── models/
+│   ├── quantized_model_full.pth
+│   ├── student_encoder.pkl
+│   └── course_encoder.pkl
+└── snpe_conversion_output/
+    ├── model.onnx
+    ├── input_list.txt
+    ├── model_float.dlc
+    ├── model_quantized.dlc
+    └── quantization_data/
+        ├── user_id_0.raw
+        └── course_id_0.raw
+```
+
+---
+
+## Usage
+
+1. Run the training script: `python train_model.py`
+2. Generate conversion files: `python create_conversion_files.py`
+3. Execute the conversion: `.\run_conversion.ps1`
+
+Your final quantized SNPE model will be available as `model_quantized.dlc` in the `snpe_conversion_output` directory.
